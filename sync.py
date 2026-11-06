@@ -300,8 +300,14 @@ def main():
     categories = {c["id"]: c.get("name", "") for c in raw_channels if c.get("type") == 4}
     text_channels = [c for c in raw_channels if c.get("type") in TEXT_CHANNEL_TYPES]
 
+    log(f"Server categories found ({len(categories)}): {list(categories.values())}")
+    log(f"Total text channels visible ({len(text_channels)}):")
+    for ch in text_channels:
+        cat_disp = clean_category_name(categories.get(ch.get("parent_id"), "No Category"))
+        log(f"  • #{ch['name']} (under: '{cat_disp}')")
+
     if CATEGORY_ALLOWLIST:
-        log(f"Category filter active: {CATEGORY_ALLOWLIST}")
+        log(f"Filtering channels by categories: {CATEGORY_ALLOWLIST}")
         channels = [
             c for c in text_channels
             if c.get("parent_id") and category_matches(categories.get(c.get("parent_id"), ""), CATEGORY_ALLOWLIST)
