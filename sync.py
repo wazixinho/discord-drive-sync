@@ -60,6 +60,8 @@ def discord_get(path, params=None):
         if r.status_code in (500, 502, 503, 504):
             time.sleep(3)
             continue
+        if not r.ok:
+            log(f"Discord API Error [{r.status_code}] on {path}: {r.text}")
         r.raise_for_status()
         return r.json()
     raise RuntimeError(f"Discord request kept failing: {path}")
@@ -178,8 +180,27 @@ def main():
         state["root_folder_id"] = create_folder(drive, ROOT_FOLDER_NAME)
         save_state(state)
 
-    channels = [c for c in discord_get(f"/guilds/{GUILD_ID}/channels")
-                if c["type"] in TEXT_CHANNEL_TYPES]
+    # Verify Discord bot token & identity
+    try:
+        me = discord_get("/users/@me")
+        log(f"Discord Bot Authenticated: {me.get('username')} (ID: {me.get('id')})")
+    except Exception as e:
+        log(f"Failed to authenticate Discord bot: {e}")
+        sys.exit(1)
+
+    try:
+        raw_channels = discord_get(f"/guilds/{GUILD_ID}/channels")
+    except requests.HTTPError as e:
+        log(f"\n[ERROR] Unable to access Discord Server (Guild ID: '{GUILD_ID}').")
+        log("Common causes:")
+        log("  1. The bot has NOT been invited into this server yet.")
+        log("     Make sure you or the admin invited the bot using the OAuth2 invite link (Step 1.3 in NEXT_STEPS.md).")
+        log("  2. DISCORD_GUILD_ID is incorrect.")
+        log("     Verify by right-clicking the server's icon in Discord -> 'Copy Server ID'.")
+        log("  3. The bot lacks permissions to view channels in the server.")
+        sys.exit(1)
+
+    channels = [c for c in raw_channels if c["type"] in TEXT_CHANNEL_TYPES]
     channels.sort(key=lambda c: c.get("position", 0))
     log(f"Found {len(channels)} text channels")
 
