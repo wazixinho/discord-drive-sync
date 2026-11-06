@@ -120,10 +120,26 @@ gh secret set GOOGLE_REFRESH_TOKEN
 Go to: [https://github.com/wazixinho/discord-drive-sync/settings/secrets/actions](https://github.com/wazixinho/discord-drive-sync/settings/secrets/actions)
 Click **New repository secret** and add each of the 5 secrets above.
 
-*(Optional)* If you want to skip certain channels like `general` or `memes`:
-```powershell
-gh variable set CHANNEL_DENYLIST --body "general,memes"
-```
+### 4.2 (Optional) Configure Channels, Categories & File Filters
+
+You can configure what gets synchronized anytime using repository variables:
+
+- **Filter by Categories** (sync only channels belonging to specific categories):
+  ```powershell
+  gh variable set CATEGORY_ALLOWLIST --body "COURS AI S5, COURS CYBER S5, COURS SOFTWARE S5"
+  ```
+  *(Or simply `--body "COURS"` to match any category starting with "COURS").*
+
+- **Only Specific File Types** (e.g. only PDFs and SQL):
+  ```powershell
+  gh variable set ALLOWED_EXTENSIONS --body "pdf,sql"
+  ```
+  *(By default, all course documents, code, archives, and files are included, while all images, gifs, videos, and audio are automatically filtered out).*
+
+- **Skip Specific Channels**:
+  ```powershell
+  gh variable set CHANNEL_DENYLIST --body "general,memes"
+  ```
 
 ---
 

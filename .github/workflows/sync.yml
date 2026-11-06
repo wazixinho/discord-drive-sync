@@ -35,6 +35,10 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           DRIVE_ROOT_FOLDER_NAME: ${{ vars.DRIVE_ROOT_FOLDER_NAME }}
           CHANNEL_DENYLIST: ${{ vars.CHANNEL_DENYLIST }}
+          CATEGORY_ALLOWLIST: ${{ vars.CATEGORY_ALLOWLIST }}
+          ALLOWED_EXTENSIONS: ${{ vars.ALLOWED_EXTENSIONS }}
+          EXCLUDED_EXTENSIONS: ${{ vars.EXCLUDED_EXTENSIONS }}
+          EXCLUDE_MEDIA: ${{ vars.EXCLUDE_MEDIA }}
         run: python sync.py
 
       - name: Commit state

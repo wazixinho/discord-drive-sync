@@ -1,21 +1,6 @@
 {
-  "channels": {
-    "1320146176112066590": {
-      "folder_id": "1j1f-8heCruJRALoZi3w3z8hDfoyebz0A",
-      "last_message_id": "1567511701463769209",
-      "name": "general"
-    },
-    "1320146431146725458": {
-      "folder_id": "1WFHPhLcpA7glgxPGRk26gZyZ2q3QIEHL",
-      "last_message_id": "1568027461625847901",
-      "name": "test"
-    },
-    "1502657978023678052": {
-      "folder_id": null,
-      "last_message_id": "1529307372927844443",
-      "name": "trivia"
-    }
-  },
-  "last_checked_date": "2026-11-06",
+  "categories": {},
+  "channels": {},
+  "last_checked_date": null,
   "root_folder_id": "1JzCsgm7yAULuVaVC4uqxItVY3sqsXmZb"
 }

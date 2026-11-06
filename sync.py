@@ -27,6 +27,34 @@ ROOT_FOLDER_NAME = os.environ.get("DRIVE_ROOT_FOLDER_NAME") or "Discord Courses"
 DENY = {x.strip().lower() for x in (os.environ.get("CHANNEL_DENYLIST") or "").split(",") if x.strip()}
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
+# Category allowlist: e.g. "COURS AI S5, COURS CYBER S5, COURS SOFTWARE S5" or "COURS"
+CATEGORY_ALLOWLIST = [
+    x.strip() for x in (os.environ.get("CATEGORY_ALLOWLIST") or "").split(",")
+    if x.strip()
+]
+
+# File filtering: exclude images, gifs, videos, audio by default
+EXCLUDE_MEDIA = os.environ.get("EXCLUDE_MEDIA", "1").strip().lower() in ("1", "true", "yes")
+ALLOWED_EXTENSIONS = {
+    x.strip().lower().lstrip(".")
+    for x in (os.environ.get("ALLOWED_EXTENSIONS") or "").split(",")
+    if x.strip()
+}
+EXCLUDED_EXTENSIONS = {
+    x.strip().lower().lstrip(".")
+    for x in (os.environ.get("EXCLUDED_EXTENSIONS") or "").split(",")
+    if x.strip()
+}
+
+MEDIA_EXTENSIONS = {
+    # Images & GIFs
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".tiff", ".tif", ".heic",
+    # Videos & animations
+    ".mp4", ".mov", ".webm", ".avi", ".mkv", ".flv", ".wmv", ".m4v",
+    # Audio
+    ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac",
+}
+
 START = time.time()
 session = requests.Session()
 session.headers["Authorization"] = f"Bot {BOT_TOKEN}"
@@ -40,8 +68,13 @@ def log(msg):
 # ---------- state ----------
 def load_state():
     if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text())
-    return {"root_folder_id": None, "last_checked_date": None, "channels": {}}
+        st = json.loads(STATE_FILE.read_text())
+        st.setdefault("categories", {})
+        st.setdefault("channels", {})
+        st.setdefault("root_folder_id", None)
+        st.setdefault("last_checked_date", None)
+        return st
+    return {"root_folder_id": None, "last_checked_date": None, "categories": {}, "channels": {}}
 
 
 def save_state(state):
@@ -125,8 +158,53 @@ def upload(drive, folder_id, name, path, mime, att_id):
 
 
 # ---------- helpers ----------
+def clean_category_name(name):
+    """Strip leading/trailing decorative characters (pipes, bullets, arrows) from category names."""
+    cleaned = re.sub(r'^[|│—\-\*\s>]+|[|│—\-\*\s>]+$', '', name).strip()
+    return cleaned or name.strip()
+
+
+def category_matches(category_name, allowlist):
+    if not allowlist:
+        return True
+    norm_cat = clean_category_name(category_name).lower()
+    raw_cat_lower = category_name.lower().strip()
+    for item in allowlist:
+        norm_item = clean_category_name(item).lower()
+        raw_item_lower = item.lower().strip()
+        if not norm_item and not raw_item_lower:
+            continue
+        if norm_item == norm_cat or norm_item in norm_cat:
+            return True
+        if raw_item_lower in raw_cat_lower:
+            return True
+    return False
+
+
+def is_allowed_file(att):
+    filename = att.get("filename", "")
+    content_type = (att.get("content_type") or "").lower()
+    ext = os.path.splitext(filename)[1].lower()
+    bare_ext = ext.lstrip(".")
+
+    if EXCLUDED_EXTENSIONS and bare_ext in EXCLUDED_EXTENSIONS:
+        return False
+
+    if ALLOWED_EXTENSIONS:
+        return bare_ext in ALLOWED_EXTENSIONS
+
+    if EXCLUDE_MEDIA:
+        if ext in MEDIA_EXTENSIONS:
+            return False
+        if any(content_type.startswith(prefix) for prefix in ("image/", "video/", "audio/")):
+            return False
+
+    return True
+
+
 def sanitize(name):
-    return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "unnamed"
+    cleaned = re.sub(r'^[|│—\-\*\s>]+|[|│—\-\*\s>]+$', '', name).strip()
+    return re.sub(r'[\\/:*?"<>|]+', "_", cleaned).strip() or "unnamed"
 
 
 def download(url, dest):
@@ -137,12 +215,16 @@ def download(url, dest):
                 f.write(chunk)
 
 
-def handle_attachment(drive, state, cs, cname, msg, att):
+def handle_attachment(drive, state, cs, cname, msg, att, target_folder_id):
+    if not is_allowed_file(att):
+        log(f"  #{cname}: Skipping non-document file '{att['filename']}'")
+        return
+
     log(f"  #{cname}: {att['filename']} ({att.get('size', 0) // 1024} KB)")
     if DRY_RUN:
         return
-    if not cs["folder_id"]:
-        cs["folder_id"] = create_folder(drive, sanitize(cname), state["root_folder_id"])
+    if not cs.get("folder_id"):
+        cs["folder_id"] = create_folder(drive, sanitize(cname), target_folder_id)
         save_state(state)
     if attachment_already_uploaded(drive, cs["folder_id"], att["id"]):
         return
@@ -156,16 +238,31 @@ def handle_attachment(drive, state, cs, cname, msg, att):
         upload(drive, cs["folder_id"], name, path, att.get("content_type"), att["id"])
 
 
-def process_channel(drive, state, ch):
+def process_channel(drive, state, ch, category_name=None):
     cid, cname = ch["id"], ch["name"]
-    cs = state["channels"].setdefault(cid, {"name": cname, "folder_id": None, "last_message_id": None})
+    cat_id = ch.get("parent_id")
+    target_folder_id = state["root_folder_id"]
+
+    if drive and cat_id and category_name:
+        cat_clean = clean_category_name(category_name)
+        cat_state = state["categories"].setdefault(cat_id, {"name": cat_clean, "folder_id": None})
+        if not cat_state.get("folder_id"):
+            log(f"Creating Drive category folder: '{cat_clean}'")
+            cat_state["folder_id"] = create_folder(drive, sanitize(cat_clean), state["root_folder_id"])
+            cat_state["name"] = cat_clean
+            save_state(state)
+        target_folder_id = cat_state["folder_id"]
+
+    cs = state["channels"].setdefault(cid, {"name": cname, "folder_id": None, "last_message_id": None, "category_id": cat_id})
     cs["name"] = cname
+    cs["category_id"] = cat_id
+
     for msg in new_messages(cid, cs["last_message_id"]):
         if time.time() - START > MAX_RUNTIME:
             log("Time budget reached; will resume on the next run.")
             return False
         for att in msg.get("attachments", []):
-            handle_attachment(drive, state, cs, cname, msg, att)
+            handle_attachment(drive, state, cs, cname, msg, att, target_folder_id)
         cs["last_message_id"] = msg["id"]
         save_state(state)
     return True
@@ -200,16 +297,31 @@ def main():
         log("  3. The bot lacks permissions to view channels in the server.")
         sys.exit(1)
 
-    channels = [c for c in raw_channels if c["type"] in TEXT_CHANNEL_TYPES]
-    channels.sort(key=lambda c: c.get("position", 0))
-    log(f"Found {len(channels)} text channels")
+    categories = {c["id"]: c.get("name", "") for c in raw_channels if c.get("type") == 4}
+    text_channels = [c for c in raw_channels if c.get("type") in TEXT_CHANNEL_TYPES]
+
+    if CATEGORY_ALLOWLIST:
+        log(f"Category filter active: {CATEGORY_ALLOWLIST}")
+        channels = [
+            c for c in text_channels
+            if c.get("parent_id") and category_matches(categories.get(c.get("parent_id"), ""), CATEGORY_ALLOWLIST)
+        ]
+    else:
+        channels = text_channels
+
+    channels.sort(key=lambda c: (clean_category_name(categories.get(c.get("parent_id"), "")), c.get("position", 0)))
+    log(f"Found {len(channels)} text channel(s) to sync:")
+    for ch in channels:
+        cat_disp = clean_category_name(categories.get(ch.get("parent_id"), "No Category"))
+        log(f"  • [{cat_disp}] #{ch['name']}")
 
     errors = 0
     for ch in channels:
         if ch["name"].lower() in DENY or ch["id"] in DENY:
             continue
+        cat_name = categories.get(ch.get("parent_id"))
         try:
-            if not process_channel(drive, state, ch):
+            if not process_channel(drive, state, ch, cat_name):
                 break  # out of time
         except requests.HTTPError as e:
             code = e.response.status_code if e.response is not None else None
